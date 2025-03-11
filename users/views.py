@@ -13,7 +13,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from tinycss2 import serialize
 
 from shared.utility import send_email, check_email_or_phone
-from .serializers import SignUpSerializer, ChangeUserInformation, ChangeUserPhotoSerializer
+from .serializers import SignUpSerializer, ChangeUserInformation, ChangeUserPhotoSerializer, LoginSerializer, \
+    LoginRefreshSerializer, LogoutSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
 from .models import User, DONE, CODE_VERIFIED, NEW, VIA_EMAIL, VIA_PHONE
 
 
@@ -135,4 +136,82 @@ class ChangeUserPhotoView(APIView):
             }, status=200)
         return Response(
             serializer.errors, status=400
+        )
+
+class LoginView(TokenObtainPairView):
+    serializer_class = LoginSerializer
+
+
+
+class LoginRefreshView(TokenRefreshView):
+    serializer_class = LoginRefreshSerializer
+
+
+class LogoutView(APIView):
+    serializer_class = LogoutSerializer
+    permission_classes = [IsAuthenticated, ]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=self.request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            refresh_token = self.request.data['refresh']
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            data = {
+                "success": True,
+                "message": "Siz muvaffaqiyatli chiqdingiz"
+            }
+            return Response(data, status=200)
+        except TokenError:
+            return Response(status=400)
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny, ]
+    serializer_class = ForgotPasswordSerializer
+
+    def post(self, request, *ergs, **kwargs):
+        serializer = self.serializer_class(data=self.request.data)
+        serializer.is_valid(raise_exception=True)
+        email_or_phone = serializer.validated_data.get("email_or_phone")
+        user = serializer.validated_data.get('user')
+        if check_email_or_phone(email_or_phone)=="phone":
+            code = user.create_verify_code(VIA_PHONE)
+            send_email(email_or_phone, code)
+        elif check_email_or_phone(email_or_phone) == 'email':
+            code = user.create_verify_code(VIA_EMAIL)
+            send_email(email_or_phone, code)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Tasdiqshlash kodi muvaffaqiyatli yuborildi",
+                "access": user.token()['access'],
+                "refresh": user.token()['refresh_token'],
+                "user_status":user.auth_status,
+            }, status=200
+        )
+
+
+class ResetPasswordView(UpdateAPIView):
+    serializer_class = ResetPasswordSerializer
+    permission_classes = [IsAuthenticated, ]
+    http_method_names = ['patch', 'put']
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        response = super(ResetPasswordView, self).update(request, *args, **kwargs)
+        try:
+            user = User.objects.get(id= response.data.get('id'))
+        except ObjectDoesNotExist as e:
+            raise NotFound(detail="User not found")
+        return Response(
+            {
+                "success": True,
+                'message': "Parolingiz muvaffaqiyatli o'zgartirildi",
+                "access": user.token()['access'],
+                "refresh" : user.token()['refresh_token'],
+            }
         )

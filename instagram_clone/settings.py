@@ -37,9 +37,11 @@ INSTALLED_APPS = [
     'phonenumbers',
     'twilio',
 
+
     # local apps
     'users',
     'shared',
+    'post',
 
 ]
 
